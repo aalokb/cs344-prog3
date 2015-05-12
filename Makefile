@@ -12,7 +12,7 @@ PROG1 = smallsh
 PROGS = ${PROG1}
 
 default:
-	${CXX} ${SRCS} -g -Wall -o ${PROG1}
+	${CXX} ${SRCS} -g -Wall -std=c99 -o ${PROG1}
 
 clean:
-	rm -f smallsh
+	rm -f smallsh 1
