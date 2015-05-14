@@ -15,4 +15,4 @@ default:
 	${CXX} ${SRCS} -g -Wall -std=c99 -o ${PROG1}
 
 clean:
-	rm -f smallsh 1
+	rm -f smallsh 1 junk

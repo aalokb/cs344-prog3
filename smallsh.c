@@ -9,40 +9,180 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <sys/types.h>
+#include <sys/wait.h>
+#include <fcntl.h>
+
+ #define MAX_ARGS 513 
 
 // Function declarations
 void RunShellLoop();
 void RemoveNewLineAndAddNullTerm(char *stringValue);
+void RunForeGroundCommand(char *userCommand);
+void ParseUserInputToArgs(char *userCommand, char **returnArr);
+void InitializeArgsArray(char **argv);
+int ContainsString(char *stringToSearch, char *stringToSearchFor);
 
 // Program entry point
 int main()
 {
 	RunShellLoop();
+
 	return 0;
 }
 
 void RunShellLoop()
 {
 	int exitShell = 0;
-
-      char *argv[10];
-      argv[0] = "ls";
-      argv[1] = 0;
-      execvp(argv[0], argv);
-
 	while (exitShell == 0)
 	{
-      	// Output the colon
+    // Output the colon
 		printf(": ");
 
 		char userInput[80];
 		fgets(userInput, 79, stdin);
+		fflush(stdout);
 		RemoveNewLineAndAddNullTerm(userInput);
 
+		// Exit the shell if user wants us to
 		if (strcmp(userInput, "exit") == 0)
 		{
 			exitShell = 1;
+			exit(0);
 		}
+
+		if (strcmp(userInput, "cd") == 0)
+		{
+			printf("not supported yet...\n");
+			continue;
+		}
+
+		// If you at the end of an input file, then exit.
+		if (feof(stdin))
+		{
+			exit(0);
+		}
+
+		RunForeGroundCommand(userInput);
+	}
+}
+
+void RunForeGroundCommand(char *userCommand)
+{	
+	int status;
+	pid_t spawnPid = -5;
+	int fd = -1;
+	int HasOutputRedirect = ContainsString(userCommand, ">");
+	int HasInputRedirect = ContainsString(userCommand, "<");
+
+	char *argv[MAX_ARGS];
+	InitializeArgsArray(argv);
+
+	ParseUserInputToArgs(userCommand, argv);
+
+	if (HasOutputRedirect == 1)
+	{
+		fd = open("redirected.txt", O_WRONLY|O_TRUNC|O_CREAT, 0644);
+	}
+
+	spawnPid = fork();
+	switch (spawnPid)
+	{
+		case -1:
+			exit(1);
+			break;
+		case 0:
+			if (dup2(fd, 1) < 0) 
+			{ 
+				perror("dup2"); 
+				exit(1);
+			}
+    	close(fd);
+  		execvp(argv[0], argv);
+			break;
+		default:
+			wait(&status); 
+			//printf("Child process exited with %d status\n", WEXITSTATUS(status));
+			break;
+	}
+}
+
+void ParseUserInputToArgs(char *userCommand, char **returnArr)
+{
+  char *currentToken;
+  int currentTokenNumber = 0;
+
+	int HasOutputRedirect = ContainsString(userCommand, ">");
+	int HasInputRedirect = ContainsString(userCommand, "<");
+
+  // Increment through the user command and break each word based on the 
+  //  whitespace delimiter. Put each word into the return array.
+  currentToken = strtok(userCommand, " ");
+  while (currentToken != NULL)
+  {
+  	// Break if we find an output redirect symbol
+  	if ((HasOutputRedirect == 1) && (strcmp(currentToken, ">") == 0))
+    {
+    	break;
+    }
+
+  	// Break if we find an input redirect symbol
+    if ((HasInputRedirect == 1) && (strcmp(currentToken, "<") == 0))
+    {
+    	break;
+    }
+
+    // Add the command arg to the array
+  	returnArr[currentTokenNumber] = currentToken;
+    currentToken = strtok (NULL, " ");
+    currentTokenNumber++;
+
+    // Break out if we are reaching the array limit.
+    if (currentTokenNumber == (MAX_ARGS - 1))
+    {
+  		returnArr[MAX_ARGS - 1] = 0;
+    	break;
+    }
+  }
+
+  // Add the null terminator to the end of the array
+  returnArr[currentTokenNumber] = 0;
+}
+
+int ContainsString(char *stringToSearch, char *stringToSearchFor)
+{
+  char *foundStringPointer;
+  foundStringPointer = strstr(stringToSearch, stringToSearchFor); 
+
+  if (foundStringPointer == 0)
+  {
+  	return 0; // False, did not find the string.
+  }
+  else
+  {
+  	return 1; // True, found the string.
+  }
+}
+
+
+/**************************************************************
+ * * Entry:
+ * *  argv - the array of strings
+ * *
+ * * Exit:
+ * *  n/a
+ * *
+ * * Purpose:
+ * *  Will set all the elements in the specified array to 0.
+ * *
+ * ***************************************************************/
+void InitializeArgsArray(char **argv)
+{
+	int i; 
+	for(i = 0; i < MAX_ARGS; i++)
+	{
+		// Initialize all values in the array to NULL
+		argv[i] = 0;
 	}
 }
 
