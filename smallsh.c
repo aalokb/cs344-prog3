@@ -14,6 +14,7 @@
 #include <fcntl.h>
 
  #define MAX_ARGS 513 
+ #define MAX_COMMAND_LENGTH 513 
 
 // Function declarations
 void RunShellLoop();
@@ -22,6 +23,7 @@ void RunForeGroundCommand(char *userCommand);
 void ParseUserInputToArgs(char *userCommand, char **returnArr);
 void InitializeArgsArray(char **argv);
 int ContainsString(char *stringToSearch, char *stringToSearchFor);
+void GetFileName(char *userCommand, char *returnValue);
 
 // Program entry point
 int main()
@@ -72,18 +74,28 @@ void RunForeGroundCommand(char *userCommand)
 	int status;
 	pid_t spawnPid = -5;
 	int fd = -1;
-	int HasOutputRedirect = ContainsString(userCommand, ">");
-	int HasInputRedirect = ContainsString(userCommand, "<");
+	int hasOutputRedirect = ContainsString(userCommand, ">");
+	int hasInputRedirect = ContainsString(userCommand, "<");
+	char fileName[MAX_COMMAND_LENGTH] = "";
 
 	char *argv[MAX_ARGS];
 	InitializeArgsArray(argv);
 
-	ParseUserInputToArgs(userCommand, argv);
-
-	if (HasOutputRedirect == 1)
+	// Get the file descriptor if we have to redirect output
+	if (hasOutputRedirect == 1)
 	{
-		fd = open("redirected.txt", O_WRONLY|O_TRUNC|O_CREAT, 0644);
+		GetFileName(userCommand, fileName);
+		fd = open(fileName, O_WRONLY|O_TRUNC|O_CREAT, 0644);
 	}
+
+	// Get the file descriptor if we have to redirect input 
+	if (hasInputRedirect == 1)
+	{
+		GetFileName(userCommand, fileName);
+		fd = open(fileName, O_RDONLY, 0644);
+	}
+
+	ParseUserInputToArgs(userCommand, argv);
 
 	spawnPid = fork();
 	switch (spawnPid)
@@ -92,11 +104,19 @@ void RunForeGroundCommand(char *userCommand)
 			exit(1);
 			break;
 		case 0:
-			if (dup2(fd, 1) < 0) 
+			// Figure out not to this if we dont have a redirect
+			if ((hasOutputRedirect) && (dup2(fd, 1) < 0))
 			{ 
 				perror("dup2"); 
 				exit(1);
 			}
+
+			if ((hasInputRedirect) && (dup2(fd, 0) < 0))
+			{ 
+				perror("dup2"); 
+				exit(1);
+			}
+
     	close(fd);
   		execvp(argv[0], argv);
 			break;
@@ -107,6 +127,22 @@ void RunForeGroundCommand(char *userCommand)
 	}
 }
 
+/**************************************************************
+ * * Entry:
+ * *  userCommand - the user entered command string
+ * *  returnValue - the array containing the user entered commands.
+ * *								used as a return container.
+ * *
+ * * Exit:
+ * *  n/a
+ * *
+ * * Purpose:
+ * *  Takes a user entered command string and breaks it up per word
+ * *  and puts it into an array. We will not put the redirection 
+ * *	symbols into the return array. We will also not put anything
+ * *	after the redirection symbols into the return array.
+ * *
+ * ***************************************************************/
 void ParseUserInputToArgs(char *userCommand, char **returnArr)
 {
   char *currentToken;
@@ -149,21 +185,65 @@ void ParseUserInputToArgs(char *userCommand, char **returnArr)
   returnArr[currentTokenNumber] = 0;
 }
 
-int ContainsString(char *stringToSearch, char *stringToSearchFor)
+/**************************************************************
+ * * Entry:
+ * *  userCommand - the user entered command string
+ * *  returnValue - the return value to hold the file name
+ * *
+ * * Exit:
+ * *  n/a
+ * *
+ * * Purpose:
+ * *  Gets the file name for the user entered command string. We
+ * *  will only get a file name if there is a redirection symbol.
+ * *
+ * ***************************************************************/
+void GetFileName(char *userCommand, char *returnValue)
 {
-  char *foundStringPointer;
-  foundStringPointer = strstr(stringToSearch, stringToSearchFor); 
+	// There are no redirects, so do not get the file name
+	if ((ContainsString(userCommand, "<") == 0) && (ContainsString(userCommand, ">") == 0)) 
+	{
+		return;
+	}
 
-  if (foundStringPointer == 0)
+	// Break all the commands into an array and find the first element
+	//  after the redirection signs
+	char *tempArray[MAX_ARGS];
+	char *currentToken;
+  int currentTokenNumber = 0;
+  int redirSymPosition = 0;
+
+  // Increment through the user command and break each word based on the 
+  //  whitespace delimiter. Put each word into the return array.
+  InitializeArgsArray(tempArray);
+  currentToken = strtok(userCommand, " ");
+  while (currentToken != NULL)
   {
-  	return 0; // False, did not find the string.
+  	// Save the position of redirect symbol
+  	if ((strcmp(currentToken, "<") == 0) || (strcmp(currentToken, ">") == 0))
+  	{
+  		redirSymPosition = currentTokenNumber;
+  	}
+
+    // Add the command arg to the array
+  	tempArray[currentTokenNumber] = currentToken;
+    currentToken = strtok (NULL, " ");
+    currentTokenNumber++;
+
+    // Break out if we are reaching the array limit.
+    if (currentTokenNumber == (MAX_ARGS - 1))
+    {
+  		tempArray[MAX_ARGS - 1] = 0;
+    	break;
+    }
   }
-  else
+
+  // Get the file name and save it in the return variable
+  if (tempArray[redirSymPosition + 1] != 0)
   {
-  	return 1; // True, found the string.
+  	strncpy(returnValue, tempArray[redirSymPosition + 1], MAX_COMMAND_LENGTH);
   }
 }
-
 
 /**************************************************************
  * * Entry:
@@ -205,4 +285,34 @@ void RemoveNewLineAndAddNullTerm(char *stringValue)
    {
       stringValue[ln] = '\0';
    }
+}
+
+/**************************************************************
+ * * Entry:
+ * *  stringToSearch - The string to perform a search on.
+ * *  stringToSearchFor - The string to search for.
+ * *
+ * * Exit:
+ * *  Returns 1, if we found the string.
+ * *  Returns 0, if we didn't find the string.
+ * *
+ * * Purpose:
+ * *  To seach a string to see if contains another string.
+ * *
+ * ***************************************************************/
+int ContainsString(char *stringToSearch, char *stringToSearchFor)
+{
+  char *foundStringPointer;
+
+  // Search for the specified string
+  foundStringPointer = strstr(stringToSearch, stringToSearchFor); 
+
+  if (foundStringPointer == 0)
+  {
+  	return 0; // False, did not find the string.
+  }
+  else
+  {
+  	return 1; // True, found the string.
+  }
 }
