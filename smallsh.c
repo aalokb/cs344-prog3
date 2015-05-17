@@ -12,18 +12,20 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 #include <fcntl.h>
+#include <signal.h>
 
- #define MAX_ARGS 513 
- #define MAX_COMMAND_LENGTH 513 
+#define MAX_ARGS 513 
+#define MAX_COMMAND_LENGTH 513 
 
 // Function declarations
 void RunShellLoop();
 void RemoveNewLineAndAddNullTerm(char *stringValue);
-void RunForeGroundCommand(char *userCommand);
+int RunForeGroundCommand(char *userCommand);
 void ParseUserInputToArgs(char *userCommand, char **returnArr);
 void InitializeArgsArray(char **argv);
 int ContainsString(char *stringToSearch, char *stringToSearchFor);
 void GetFileName(char *userCommand, char *returnValue);
+void catchInt(int signo);
 
 // Program entry point
 int main()
@@ -36,8 +38,10 @@ int main()
 void RunShellLoop()
 {
 	int exitShell = 0;
+	int statusNumber = 0;
 	while (exitShell == 0)
 	{
+		fflush(stdout);
     // Output the colon
 		printf(": ");
 
@@ -59,20 +63,44 @@ void RunShellLoop()
 			continue;
 		}
 
+		if (strcmp(userInput, "status") == 0)
+		{
+			printf("exit value %d\n", statusNumber);
+			statusNumber = 0;
+			continue;
+		}
+
 		// If you at the end of an input file, then exit.
 		if (feof(stdin))
 		{
 			exit(0);
 		}
 
-		RunForeGroundCommand(userInput);
+		statusNumber = RunForeGroundCommand(userInput);
 	}
 }
 
-void RunForeGroundCommand(char *userCommand)
+/**************************************************************
+ * * Entry:
+ * *  userCommand - the user entered command string
+ * *
+ * * Exit:
+ * *  Returns 0, if command executed without errors.
+ * *  Returns any other number, if command executed with errors.
+ * *
+ * * Purpose:
+ * *	Runs the specified foreground command.
+ * *
+ * ***************************************************************/
+int RunForeGroundCommand(char *userCommand)
 {	
-	int status;
+	int status = 0;
+	int returnStatus = 0;
 	pid_t spawnPid = -5;
+
+	struct sigaction act;
+
+	//pid_t pid;
 	int fd = -1;
 	int hasOutputRedirect = ContainsString(userCommand, ">");
 	int hasInputRedirect = ContainsString(userCommand, "<");
@@ -96,7 +124,6 @@ void RunForeGroundCommand(char *userCommand)
 	}
 
 	ParseUserInputToArgs(userCommand, argv);
-
 	spawnPid = fork();
 	switch (spawnPid)
 	{
@@ -107,24 +134,38 @@ void RunForeGroundCommand(char *userCommand)
 			// Figure out not to this if we dont have a redirect
 			if ((hasOutputRedirect) && (dup2(fd, 1) < 0))
 			{ 
-				perror("dup2"); 
-				exit(1);
+				return 1;
 			}
 
 			if ((hasInputRedirect) && (dup2(fd, 0) < 0))
 			{ 
-				perror("dup2"); 
-				exit(1);
+				printf("smallsh: cannot open %s for input\n", fileName);
+				return 1;
 			}
 
-    	close(fd);
-  		execvp(argv[0], argv);
+   	 		close(fd);
+	  		execvp(argv[0], argv);
+	  		printf("%s: no such file or directory\n", argv[0]);
 			break;
 		default:
-			wait(&status); 
-			//printf("Child process exited with %d status\n", WEXITSTATUS(status));
+
+			// Catch the interrupt signal and output a message
+			// act.sa_handler = catchInt;
+			// act.sa_flags = 0;
+			// sigfillset(&(act.sa_mask));
+			// sigaction(SIGINT, &act, NULL);
+
+			wait(&status);
+			returnStatus = WEXITSTATUS(status);
 			break;
 	}
+
+	return returnStatus;
+}
+
+void catchInt(int signo)
+{
+	printf("terminated by signal %d\n", signo);
 }
 
 /**************************************************************
