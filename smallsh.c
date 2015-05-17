@@ -143,9 +143,20 @@ int RunForeGroundCommand(char *userCommand)
 				return 1;
 			}
 
+			// Do not ignore
+			act.sa_handler = SIG_DFL;
+			sigaction(SIGINT, &act, NULL);
+			
+			// Catch the interrupt signal and output a message
+			act.sa_handler = catchInt;
+			act.sa_flags = 0;
+			sigfillset(&(act.sa_mask));
+			sigaction(SIGINT, &act, NULL);
+
    	 		close(fd);
 	  		execvp(argv[0], argv);
 	  		printf("%s: no such file or directory\n", argv[0]);
+	  		exit(1);
 			break;
 		default:
 
@@ -155,8 +166,16 @@ int RunForeGroundCommand(char *userCommand)
 			// sigfillset(&(act.sa_mask));
 			// sigaction(SIGINT, &act, NULL);
 
+			// this will ignore without the message
+			act.sa_handler = SIG_IGN;
+			sigaction(SIGINT, &act, NULL);
 			wait(&status);
 			returnStatus = WEXITSTATUS(status);
+
+			if(WIFSIGNALED(status)) {
+				printf("terminated by signal %d\n", WTERMSIG(status));
+			}
+
 			break;
 	}
 
@@ -165,7 +184,8 @@ int RunForeGroundCommand(char *userCommand)
 
 void catchInt(int signo)
 {
-	printf("terminated by signal %d\n", signo);
+	write(1, "This will be output to standard out\n", 36);
+	// printf("terminated by signal %d\n", signo);
 }
 
 /**************************************************************
