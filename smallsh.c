@@ -16,18 +16,29 @@
 
 #define MAX_ARGS 513 
 #define MAX_COMMAND_LENGTH 513 
+#define MAX_ERR_MSG_LENGTH 80 
 
 // Function declarations
 void RunShellLoop();
 void RemoveNewLineAndAddNullTerm(char *stringValue);
-int RunForeGroundCommand(char *userCommand);
+int RunForeGroundCommand(char *userCommand, char *errMsg);
 void ParseUserInputToArgs(char *userCommand, char **returnArr);
 void InitializeArgsArray(char **argv);
 int ContainsString(char *stringToSearch, char *stringToSearchFor);
 void GetFileName(char *userCommand, char *returnValue);
 void catchInt(int signo);
 
-// Program entry point
+/**************************************************************
+ * * Entry:
+ * *  N/a
+ * *
+ * * Exit:
+ * *  N/a
+ * *
+ * * Purpose:
+ * *	This is the entry point into the program.
+ * *
+ * ***************************************************************/
 int main()
 {
 	RunShellLoop();
@@ -35,14 +46,28 @@ int main()
 	return 0;
 }
 
+/**************************************************************
+ * * Entry:
+ * *  N/a
+ * *
+ * * Exit:
+ * *  N/a
+ * *
+ * * Purpose:
+ * *	Runs the shell loop
+ * *
+ * ***************************************************************/
 void RunShellLoop()
 {
 	int exitShell = 0;
 	int statusNumber = 0;
+	char errMsg[MAX_ERR_MSG_LENGTH] = "";
+
 	while (exitShell == 0)
 	{
 		fflush(stdout);
-    // Output the colon
+    	
+    	// Output the colon
 		printf(": ");
 
 		char userInput[80];
@@ -57,15 +82,26 @@ void RunShellLoop()
 			exit(0);
 		}
 
+		// Change the current shell's directory
 		if (strcmp(userInput, "cd") == 0)
 		{
 			printf("not supported yet...\n");
 			continue;
 		}
 
+		// Get the status of the previous command
 		if (strcmp(userInput, "status") == 0)
 		{
-			printf("exit value %d\n", statusNumber);
+			if (strncmp(errMsg, "", MAX_ERR_MSG_LENGTH) == 0)
+			{
+				printf("exit value %d\n", statusNumber);
+			}
+			else
+			{
+				printf("%s\n", errMsg);
+			}
+
+			strncpy(errMsg, "", MAX_ERR_MSG_LENGTH);
 			statusNumber = 0;
 			continue;
 		}
@@ -76,7 +112,7 @@ void RunShellLoop()
 			exit(0);
 		}
 
-		statusNumber = RunForeGroundCommand(userInput);
+		statusNumber = RunForeGroundCommand(userInput, errMsg);
 	}
 }
 
@@ -92,7 +128,7 @@ void RunShellLoop()
  * *	Runs the specified foreground command.
  * *
  * ***************************************************************/
-int RunForeGroundCommand(char *userCommand)
+int RunForeGroundCommand(char *userCommand, char *errMsg)
 {	
 	int status = 0;
 	int returnStatus = 0;
@@ -124,6 +160,8 @@ int RunForeGroundCommand(char *userCommand)
 	}
 
 	ParseUserInputToArgs(userCommand, argv);
+
+	// Start the child process for command execution	
 	spawnPid = fork();
 	switch (spawnPid)
 	{
@@ -131,28 +169,24 @@ int RunForeGroundCommand(char *userCommand)
 			exit(1);
 			break;
 		case 0:
-			// Figure out not to this if we dont have a redirect
+			// Establish the std output redirect, exit if error is found.
 			if ((hasOutputRedirect) && (dup2(fd, 1) < 0))
 			{ 
-				return 1;
+				exit(1);
 			}
 
+			// Establish the std input redirect, exit if error is found.
 			if ((hasInputRedirect) && (dup2(fd, 0) < 0))
 			{ 
 				printf("smallsh: cannot open %s for input\n", fileName);
-				return 1;
+				exit(1);
 			}
 
 			// Do not ignore
 			act.sa_handler = SIG_DFL;
 			sigaction(SIGINT, &act, NULL);
-			
-			// Catch the interrupt signal and output a message
-			act.sa_handler = catchInt;
-			act.sa_flags = 0;
-			sigfillset(&(act.sa_mask));
-			sigaction(SIGINT, &act, NULL);
 
+			// Try to execute the user command
    	 		close(fd);
 	  		execvp(argv[0], argv);
 	  		printf("%s: no such file or directory\n", argv[0]);
@@ -160,32 +194,32 @@ int RunForeGroundCommand(char *userCommand)
 			break;
 		default:
 
-			// Catch the interrupt signal and output a message
-			// act.sa_handler = catchInt;
-			// act.sa_flags = 0;
-			// sigfillset(&(act.sa_mask));
-			// sigaction(SIGINT, &act, NULL);
-
-			// this will ignore without the message
+			// Ignore termination signal
 			act.sa_handler = SIG_IGN;
 			sigaction(SIGINT, &act, NULL);
+
+			// Wait for child process to finish	
 			wait(&status);
 			returnStatus = WEXITSTATUS(status);
 
+			// Save the appropriate signal error message
 			if(WIFSIGNALED(status)) {
-				printf("terminated by signal %d\n", WTERMSIG(status));
+				int signalNumber = WTERMSIG(status);
+				char terminateMsg[MAX_ERR_MSG_LENGTH]; 
+				char signalNumberStr[10];
+   				snprintf(signalNumberStr, sizeof(signalNumberStr), "%d", signalNumber);
+
+   				// Output the correct error message and save it for the status command
+				strncpy(terminateMsg, "terminated by signal ", MAX_ERR_MSG_LENGTH);
+				strcat(terminateMsg, signalNumberStr);
+				printf("%s\n", terminateMsg);
+				strncpy(errMsg, terminateMsg, MAX_ERR_MSG_LENGTH);
 			}
 
 			break;
 	}
 
 	return returnStatus;
-}
-
-void catchInt(int signo)
-{
-	write(1, "This will be output to standard out\n", 36);
-	// printf("terminated by signal %d\n", signo);
 }
 
 /**************************************************************
