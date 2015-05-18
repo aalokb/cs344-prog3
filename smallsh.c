@@ -14,6 +14,9 @@
 #include <fcntl.h>
 #include <signal.h>
 
+// stdin fix 
+#include <termios.h>
+
 #define MAX_ARGS 513 
 #define MAX_COMMAND_LENGTH 513 
 #define MAX_ERR_MSG_LENGTH 80 
@@ -26,7 +29,8 @@ void ParseUserInputToArgs(char *userCommand, char **returnArr);
 void InitializeArgsArray(char **argv);
 int ContainsString(char *stringToSearch, char *stringToSearchFor);
 void GetFileName(char *userCommand, char *returnValue);
-void catchInt(int signo);
+int RunBackGroundCommand(char *userCommand);
+static void sigchld_handler (int sig);
 
 /**************************************************************
  * * Entry:
@@ -41,6 +45,10 @@ void catchInt(int signo);
  * ***************************************************************/
 int main()
 {
+	struct sigaction act;
+	act.sa_handler = sigchld_handler;
+	sigaction(SIGCHLD, &act, NULL);
+
 	RunShellLoop();
 
 	return 0;
@@ -61,6 +69,8 @@ void RunShellLoop()
 {
 	int exitShell = 0;
 	int statusNumber = 0;
+	char userInput[80];
+
 	char errMsg[MAX_ERR_MSG_LENGTH] = "";
 
 	while (exitShell == 0)
@@ -69,11 +79,21 @@ void RunShellLoop()
     	
     	// Output the colon
 		printf(": ");
-
-		char userInput[80];
 		fgets(userInput, 79, stdin);
 		fflush(stdout);
 		RemoveNewLineAndAddNullTerm(userInput);
+
+		// Restart loop if user entered nothing
+		if (strcmp(userInput, "") == 0)
+		{
+			continue;
+		}
+
+		// Restart the loop if the user entered a comment
+		if (userInput[0] == '#')
+		{
+			continue;
+		}
 
 		// Exit the shell if user wants us to
 		if (strcmp(userInput, "exit") == 0)
@@ -105,20 +125,174 @@ void RunShellLoop()
 			statusNumber = 0;
 			continue;
 		}
+		else
+		{
+			// Clean up the status if we didn't want to display it
+			strncpy(errMsg, "", MAX_ERR_MSG_LENGTH);
+			statusNumber = 0;
+		}
+
+		// Check if we are doing a background process
+		if (ContainsString(userInput, "&"))
+		{
+			// printf("background processes are not supported yet.\n");
+			RunBackGroundCommand(userInput);
+			// strncpy(userInput, "", MAX_COMMAND_LENGTH);
+			continue;
+		}
+			
+		statusNumber = RunForeGroundCommand(userInput, errMsg);
 
 		// If you at the end of an input file, then exit.
 		if (feof(stdin))
 		{
 			exit(0);
 		}
-
-		statusNumber = RunForeGroundCommand(userInput, errMsg);
 	}
 }
 
 /**************************************************************
  * * Entry:
  * *  userCommand - the user entered command string
+ * *
+ * * Exit:
+ * *  Returns 0, if command executed without errors.
+ * *  Returns any other number, if command executed with errors.
+ * *
+ * * Purpose:
+ * *	Runs the specified foreground command.
+ * *
+ * ***************************************************************/
+int RunBackGroundCommand(char *userCommand)
+{	
+	// int status = 0;
+	int returnStatus = 0;
+	pid_t spawnPid = -5;
+	char pidNumberStr[10];
+
+	// struct sigaction act;
+
+	//pid_t pid;
+	int fd = -1;
+	int hasOutputRedirect = ContainsString(userCommand, ">");
+	int hasInputRedirect = ContainsString(userCommand, "<");
+	char fileName[MAX_COMMAND_LENGTH] = "";
+
+	char *argv[MAX_ARGS];
+	InitializeArgsArray(argv);
+
+	// Get the file descriptor if we have to redirect output
+	if (hasOutputRedirect == 1)
+	{
+		GetFileName(userCommand, fileName);
+		fd = open(fileName, O_WRONLY|O_TRUNC|O_CREAT, 0644);
+	}
+
+	// Get the file descriptor if we have to redirect input 
+	if (hasInputRedirect == 1)
+	{
+		GetFileName(userCommand, fileName);
+		fd = open(fileName, O_RDONLY, 0644);
+	}
+	else
+	{
+		fd = open("/dev/null", O_RDONLY);
+	}
+
+	ParseUserInputToArgs(userCommand, argv);
+
+	// Start the child process for command execution	
+	spawnPid = fork();
+
+	
+
+	switch (spawnPid)
+	{
+		case -1:
+			exit(1);
+			break;
+		case 0:
+	
+			// Establish the std output redirect, exit if error is found.
+			if ((hasOutputRedirect) && (dup2(fd, 1) < 0))
+			{ 
+				exit(1);
+			}
+			else if ((dup2(fd, 0) < 0))
+			{ 
+				// Establish the std input redirect, exit if error is found.
+				printf("smallsh: cannot open %s for input\n", fileName);
+				exit(1);
+			}
+
+   	 		close(fd);
+
+	  		execvp(argv[0], argv);
+	  		printf("%s: no such file or directory\n", argv[0]);
+	  		exit(1);
+			break;
+		default:
+			// Output the process ID message for background processes
+			snprintf(pidNumberStr, sizeof(pidNumberStr), "%d", spawnPid);
+			printf("background pid is %s\n", pidNumberStr);
+
+			break;
+	}
+
+	return returnStatus;
+}
+
+static void sigchld_handler (int sig)
+{
+	int status;
+	pid_t childPid;
+
+	while ((childPid = waitpid(-1, &status, WNOHANG)) > 0)
+	{
+		// Convert the child pid to a string
+		char pidNumberStr[10];
+		snprintf(pidNumberStr, sizeof(pidNumberStr), "%d", childPid);
+
+		// Declare the message variable
+		char childTerminateMsg[MAX_ERR_MSG_LENGTH]; 
+		char statusNumberStr[5];
+
+		// Construct the child terminate message
+		//  Example: "background pid 4923 is done: exit value 0"
+		strncpy(childTerminateMsg, "\nbackground pid ", MAX_ERR_MSG_LENGTH);
+		strcat(childTerminateMsg, pidNumberStr);
+		strcat(childTerminateMsg, " is done: ");
+	
+		if(WIFSIGNALED(status)) {
+				int signalNumber = WTERMSIG(status);
+				char signalNumberStr[10];
+   				snprintf(signalNumberStr, sizeof(signalNumberStr), "%d", signalNumber);
+
+   				// Output the correct error message and save it for the status command
+				strcat(childTerminateMsg, "terminated by signal ");
+				strcat(childTerminateMsg, signalNumberStr);
+				strcat(childTerminateMsg, "\n");
+				write(1, childTerminateMsg, sizeof(childTerminateMsg));
+		}
+		else
+		{
+			strcat(childTerminateMsg, "exit value ");
+			snprintf(statusNumberStr, sizeof(statusNumberStr), "%d", WEXITSTATUS(status));
+			strcat(childTerminateMsg, statusNumberStr);
+			strcat(childTerminateMsg, "\n");
+
+			// Write out the message
+			write(1, childTerminateMsg, sizeof(childTerminateMsg));
+		}
+
+		continue;
+	}
+}
+
+/**************************************************************
+ * * Entry:
+ * *  userCommand - the user entered command string
+ * *  errMsg - the return variable to hold the error message
  * *
  * * Exit:
  * *  Returns 0, if command executed without errors.
@@ -199,7 +373,9 @@ int RunForeGroundCommand(char *userCommand, char *errMsg)
 			sigaction(SIGINT, &act, NULL);
 
 			// Wait for child process to finish	
-			wait(&status);
+			// wait(&status);
+			waitpid(spawnPid, &status, 0);
+
 			returnStatus = WEXITSTATUS(status);
 
 			// Save the appropriate signal error message
@@ -259,6 +435,12 @@ void ParseUserInputToArgs(char *userCommand, char **returnArr)
 
   	// Break if we find an input redirect symbol
     if ((HasInputRedirect == 1) && (strcmp(currentToken, "<") == 0))
+    {
+    	break;
+    }
+
+    // Break if we find the background process symbol ("&")
+	if (strcmp(currentToken, "&") == 0)
     {
     	break;
     }
