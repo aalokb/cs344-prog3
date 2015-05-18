@@ -15,4 +15,4 @@ default:
 	${CXX} ${SRCS} -g -Wall -std=c99 -D_XOPEN_SOURCE -o ${PROG1}
 
 clean:
-	rm -rf smallsh 1 junk testdir*
+	rm -rf smallsh 1 junk testdir* mytestresults

@@ -102,10 +102,24 @@ void RunShellLoop()
 			exit(0);
 		}
 
-		// Change the current shell's directory
+		// Change the current shell's directory to HOME if the 
+		// user types "cd"
 		if (strcmp(userInput, "cd") == 0)
 		{
-			printf("not supported yet...\n");
+			char* homePath;
+  			homePath = getenv("HOME");
+			chdir(homePath);
+			continue;
+		}
+
+		// Change current directory to user specified directory
+		if ((userInput[0] == 'c') && (userInput[1] == 'd') && (userInput[2] == ' '))
+		{
+			char *argArr[MAX_ARGS];
+			InitializeArgsArray(argArr);
+
+			ParseUserInputToArgs(userInput, argArr);
+			chdir(argArr[1]);
 			continue;
 		}
 
