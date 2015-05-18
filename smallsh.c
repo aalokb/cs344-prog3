@@ -246,6 +246,7 @@ int RunBackGroundCommand(char *userCommand)
 	  		exit(1);
 			break;
 		default:
+			close(fd);
 			// Output the process ID message for background processes
 			snprintf(pidNumberStr, sizeof(pidNumberStr), "%d", spawnPid);
 			printf("background pid is %s\n", pidNumberStr);
@@ -381,7 +382,8 @@ int RunForeGroundCommand(char *userCommand, char *errMsg)
 	  		exit(1);
 			break;
 		default:
-
+			close(fd);
+			
 			// Ignore termination signal
 			act.sa_handler = SIG_IGN;
 			sigaction(SIGINT, &act, NULL);
