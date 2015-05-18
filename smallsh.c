@@ -18,7 +18,7 @@
 #include <termios.h>
 
 #define MAX_ARGS 513 
-#define MAX_COMMAND_LENGTH 513 
+#define MAX_COMMAND_LENGTH 2048 
 #define MAX_ERR_MSG_LENGTH 80 
 
 // Function declarations
@@ -69,19 +69,29 @@ void RunShellLoop()
 {
 	int exitShell = 0;
 	int statusNumber = 0;
-	char userInput[80];
+	char userInput[MAX_COMMAND_LENGTH] = "";
+	int maxLoops = 0;
 
 	char errMsg[MAX_ERR_MSG_LENGTH] = "";
 
 	while (exitShell == 0)
 	{
+		// This is an attempt to fix the sleep repeat error i get.
+		strncpy(userInput, "", MAX_COMMAND_LENGTH - 1);
+
 		fflush(stdout);
     	
-    	// Output the colon
+    // Output the colon
 		printf(": ");
 		fgets(userInput, 79, stdin);
 		fflush(stdout);
 		RemoveNewLineAndAddNullTerm(userInput);
+
+		// If you at the end of an input file, then exit.
+		if (feof(stdin))
+		{
+			exit(0);
+		}
 
 		// Restart loop if user entered nothing
 		if (strcmp(userInput, "") == 0)
@@ -157,11 +167,15 @@ void RunShellLoop()
 			
 		statusNumber = RunForeGroundCommand(userInput, errMsg);
 
-		// If you at the end of an input file, then exit.
-		if (feof(stdin))
+
+		maxLoops++;
+		if (maxLoops == 1000)
 		{
 			exit(0);
 		}
+		
+		// Attempt to fix this sleep issue		
+		//strncpy(userInput, "", MAX_COMMAND_LENGTH - 1);
 	}
 }
 
