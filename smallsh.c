@@ -13,6 +13,7 @@
 #include <sys/wait.h>
 #include <fcntl.h>
 #include <signal.h>
+#include <termios.h>
 
 #define MAX_ARGS 513 // This is 513 because we support 512 arguments plus 1 command
 #define MAX_COMMAND_LENGTH 2048 
@@ -74,6 +75,9 @@ void RunShellLoop()
 
 	while (exitShell == 0)
 	{
+		// Clear stdin
+		tcflush(0, TCIFLUSH);
+
 		// Clear the user input variable before each run
 		strncpy(userInput, "", MAX_COMMAND_LENGTH - 1);
 
